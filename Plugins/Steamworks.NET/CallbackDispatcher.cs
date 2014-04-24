@@ -19,20 +19,16 @@ namespace Steamworks {
 		void Run(IntPtr param, bool bIOFailure);
 	}
 
-	public class Callback<T> : ICallbackBase {
+	public sealed class Callback<T> : ICallbackBase {
 		public delegate void DispatchDelegate(T param);
 		public event DispatchDelegate m_Func;
 
-		public Callback() {
-			CallbackDispatcher.RegisterCallback(this, CallbackIdentities.GetCallbackIdentity(typeof(T)));
-		}
-
-		public Callback(DispatchDelegate myFunc)
-			: this() {
+		public Callback(DispatchDelegate myFunc) {
 			if (myFunc == null)
 				throw new Exception("Function must not be null.");
-			
+
 			this.m_Func += myFunc;
+			CallbackDispatcher.RegisterCallback(this, CallbackIdentities.GetCallbackIdentity(typeof(T)));
 		}
 
 		~Callback() {
@@ -90,7 +86,7 @@ namespace Steamworks {
 
 			m_hAPICall = hAPICall;
 
-			if(hAPICall != SteamAPICall_t.Invalid)
+			if (hAPICall != SteamAPICall_t.Invalid)
 				CallbackDispatcher.RegisterCallResult(this, hAPICall);
 		}
 
@@ -125,8 +121,9 @@ namespace Steamworks {
 		private static Dictionary<int, List<ICallbackBase>> m_RegisteredCallbacks = new Dictionary<int, List<ICallbackBase>>();
 		private static Dictionary<SteamAPICall_t, List<ICallResultBase>> m_RegisteredCallResults = new Dictionary<SteamAPICall_t, List<ICallResultBase>>();
 
-		public static HSteamPipe m_LastActivePipe { get; private set; }
-		public static Callback<SteamAPICallCompleted_t> m_APICallbackCompleted = new Callback<SteamAPICallCompleted_t>(RunCallResult);
+		public static Callback<SteamAPICallCompleted_t> m_APICallbackCompleted = new Callback<SteamAPICallCompleted_t>(OnSteamCallResult);
+
+		delegate void OnCallbackFromSteamDel(int k_iCallback, IntPtr pvParam);
 
 		public static void RegisterCallback(ICallbackBase callback, int iCallback) {
 			List<ICallbackBase> callbackList;
@@ -185,32 +182,39 @@ namespace Steamworks {
 		}
 
 		public static void RunCallbacks() {
-			CallbackMsg_t callbackmsg;
-			HSteamPipe pipe = SteamAPI.GetHSteamPipe();
-
-			while (NativeMethods.Steam_BGetCallback(pipe, out callbackmsg)) {
-				m_LastActivePipe = pipe;
-
-				List<ICallbackBase> callbackList;
-				if (m_RegisteredCallbacks.TryGetValue(callbackmsg.m_iCallback, out callbackList)) {
-					foreach (ICallbackBase callback in callbackList) {
-						callback.Run(callbackmsg.m_pubParam);
-					}
-				}
-
-				NativeMethods.Steam_FreeLastCallback(pipe);
-			}
-
-			// These need to be called every frame to process matchmaking results and poll the controller
-			SteamUtils.RunFrame();
-			SteamController.RunFrame();
+			NativeMethods.CSteamworks_RunCallbacks(pfnSteamCallback);
 		}
 
-		public static void RunCallResult(SteamAPICallCompleted_t apicall) {
+		public static void RunGameServerCallbacks() {
+			NativeMethods.CSteamworks_RunGameServerCallbacks(pfnSteamGameServerCallback);
+		}
+
+		static OnCallbackFromSteamDel pfnSteamCallback = new OnCallbackFromSteamDel(OnSteamCallback);
+		private static void OnSteamCallback(int iCallback, IntPtr pubParam) {
+			List<ICallbackBase> callbackList;
+			if (m_RegisteredCallbacks.TryGetValue(iCallback, out callbackList)) {
+				foreach (ICallbackBase callback in callbackList) {
+					callback.Run(pubParam);
+				}
+			}
+		}
+
+		static OnCallbackFromSteamDel pfnSteamGameServerCallback = new OnCallbackFromSteamDel(OnSteamGameServerCallback);
+		private static void OnSteamGameServerCallback(int iCallback, IntPtr pubParam) {
+			List<ICallbackBase> callbackList;
+			if (m_RegisteredCallbacks.TryGetValue(iCallback, out callbackList)) {
+				foreach (ICallbackBase callback in callbackList) {
+					callback.Run(pubParam);
+				}
+			}
+		}
+
+		private static void OnSteamCallResult(SteamAPICallCompleted_t apicall) {
 			List<ICallResultBase> callResultList;
 
-			if (!m_RegisteredCallResults.TryGetValue(apicall.m_hAsyncCall, out callResultList))
+			if (!m_RegisteredCallResults.TryGetValue(apicall.m_hAsyncCall, out callResultList)) {
 				return;
+			}
 
 			if (callResultList.Count == 0) {
 				// This should never ever happen? Jankyness.
@@ -224,12 +228,14 @@ namespace Steamworks {
 			try {
 				ICallResultBase apiCallback = callResultList[0];
 				pData = Marshal.AllocHGlobal(apiCallback.GetCallbackSizeBytes());
-
-				if (!NativeMethods.Steam_GetAPICallResult(m_LastActivePipe, apicall.m_hAsyncCall, pData, apiCallback.GetCallbackSizeBytes(), apiCallback.GetICallback(), out bFailed))
+				if (!SteamUtils.GetAPICallResult(apicall.m_hAsyncCall, pData, apiCallback.GetCallbackSizeBytes(), apiCallback.GetICallback(), out bFailed)) {
+					// If your API CallResult is failing you could try examining the following.
+					// ESteamAPICallFailure failureReason = SteamUtils.GetAPICallFailureReason(apicall.m_hAsyncCall);
 					return;
+				}
 
-				foreach (ICallResultBase c in callResultList) {
-					c.Run(pData, bFailed);
+				foreach (ICallResultBase callresult in callResultList) {
+					callresult.Run(pData, bFailed);
 				}
 			}
 			finally {

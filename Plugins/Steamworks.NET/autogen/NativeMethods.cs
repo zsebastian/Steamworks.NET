@@ -10,6 +10,13 @@ using System.Runtime.InteropServices;
 
 namespace Steamworks {
 	internal static class NativeMethods {
+#region CSteamworksCallbacks
+		[DllImport("CSteamworks", EntryPoint = "CSteamworks_RunCallbacks", CallingConvention = CallingConvention.Cdecl)]
+		public static extern void CSteamworks_RunCallbacks(MulticastDelegate OnCallback);
+
+		[DllImport("CSteamworks", EntryPoint = "CSteamworks_RunGameServerCallbacks", CallingConvention = CallingConvention.Cdecl)]
+		public static extern void CSteamworks_RunGameServerCallbacks(MulticastDelegate OnCallback);
+#endregion
 #region steam_api.h
 		[DllImport("CSteamworks", EntryPoint = "Shutdown", CallingConvention = CallingConvention.Cdecl)]
 		public static extern void SteamAPI_Shutdown();
