@@ -225,4 +225,101 @@ namespace Steamworks {
 			return ret;
 		}
 	}
+
+	//-----------------------------------------------------------------------------
+	// Purpose: Functions for sending and receiving messages from the Game Coordinator
+	//			for this application
+	//-----------------------------------------------------------------------------
+	public class SteamGameCoordinator {
+		private enum Functions {
+			SendMessage,
+			IsMessageAvailable,
+			RetrieveMessage,
+		}
+
+		private static System.IntPtr s_SteamGameCoordinator;
+
+		private static void InitSteamGameCoordinator() {
+			InteropHelp.TestIfPlatformSupported();
+			HSteamPipe pipe = SteamAPI.GetHSteamPipe();
+			HSteamUser user = SteamAPI.GetHSteamUser();
+			s_SteamGameCoordinator = SteamClient.GetISteamGenericInterface(user, pipe, "SteamGameCoordinator001");
+
+			System.IntPtr VTablePtr = Marshal.ReadIntPtr(s_SteamGameCoordinator);
+
+			_SendMessage = (NativeSendMessage)Marshal.GetDelegateForFunctionPointer(Marshal.ReadIntPtr(VTablePtr, (int)Functions.SendMessage * System.IntPtr.Size), typeof(NativeSendMessage));
+			_IsMessageAvailable = (NativeIsMessageAvailable)Marshal.GetDelegateForFunctionPointer(Marshal.ReadIntPtr(VTablePtr, (int)Functions.IsMessageAvailable * System.IntPtr.Size), typeof(NativeIsMessageAvailable));
+			_RetrieveMessage = (NativeRetrieveMessage)Marshal.GetDelegateForFunctionPointer(Marshal.ReadIntPtr(VTablePtr, (int)Functions.RetrieveMessage * System.IntPtr.Size), typeof(NativeRetrieveMessage));
+		}
+
+		[UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+		private delegate EGCResults NativeSendMessage(System.IntPtr thisptr, uint unMsgType, System.IntPtr pubData, uint cubData);
+		private static NativeSendMessage _SendMessage;
+		/// <summary>
+		/// <para>sends a message to the Game Coordinator</para>
+		/// </summary>
+		public static EGCResults SendMessage(uint unMsgType, System.IntPtr pubData, uint cubData) {
+			if (s_SteamGameCoordinator == System.IntPtr.Zero) { InitSteamGameCoordinator(); }
+			return _SendMessage(s_SteamGameCoordinator, unMsgType, pubData, cubData);
+		}
+
+		[UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+		[return: MarshalAs(UnmanagedType.I1)]
+		private delegate bool NativeIsMessageAvailable(System.IntPtr thisptr, out uint unMsgType);
+		private static NativeIsMessageAvailable _IsMessageAvailable;
+		/// <summary>
+		/// <para>returns true if there is a message waiting from the game coordinator</para>
+		/// </summary>
+		public static bool IsMessageAvailable(out uint pcubMsgSize) {
+			if (s_SteamGameCoordinator == System.IntPtr.Zero) { InitSteamGameCoordinator(); }
+			return _IsMessageAvailable(s_SteamGameCoordinator, out pcubMsgSize);
+		}
+
+		[UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+		private delegate EGCResults NativeRetrieveMessage(System.IntPtr thisptr, out uint unMsgType, byte[] pubDest, uint cubDest, out uint pcubMsgSize);
+		private static NativeRetrieveMessage _RetrieveMessage;
+		/// <summary>
+		/// <para>fills the provided buffer with the first message in the queue and returns k_EGCResultOK or</para>
+		/// <para>returns k_EGCResultNoMessage if there is no message waiting. pcubMsgSize is filled with the message size.</para>
+		/// <para>If the provided buffer is not large enough to fit the entire message, k_EGCResultBufferTooSmall is returned</para>
+		/// <para>and the message remains at the head of the queue.</para>
+		/// </summary>
+		public static EGCResults RetrieveMessage(out uint unMsgType, byte[] pubDest, uint cubDest, out uint pcubMsgSize) {
+			if (s_SteamGameCoordinator == System.IntPtr.Zero) { InitSteamGameCoordinator(); }
+			return _RetrieveMessage(s_SteamGameCoordinator, out unMsgType, pubDest, cubDest, out pcubMsgSize);
+		}
+	}
+
+	//-----------------------------------------------------------------------------
+	// Purpose: hand out a reasonable "future proof" view of an app ownership ticket
+	// the raw (signed) buffer, and indices into that buffer where the appid and 
+	// steamid are located.  the sizes of the appid and steamid are implicit in 
+	// (each version of) the interface - currently uin32 appid and uint64 steamid
+	//-----------------------------------------------------------------------------
+	public class SteamAppTicket {
+		private enum Functions {
+			GetAppOwnershipTicketData,
+		}
+
+		private static System.IntPtr s_SteamAppTicket;
+
+		private static void InitSteamAppTicket() {
+			InteropHelp.TestIfPlatformSupported();
+			HSteamPipe pipe = SteamAPI.GetHSteamPipe();
+			HSteamUser user = SteamAPI.GetHSteamUser();
+			s_SteamAppTicket = SteamClient.GetISteamGenericInterface(user, pipe, "STEAMAPPTICKET_INTERFACE_VERSION001");
+
+			System.IntPtr VTablePtr = Marshal.ReadIntPtr(s_SteamAppTicket);
+
+			_GetAppOwnershipTicketData = (NativeGetAppOwnershipTicketData)Marshal.GetDelegateForFunctionPointer(Marshal.ReadIntPtr(VTablePtr, (int)Functions.GetAppOwnershipTicketData * System.IntPtr.Size), typeof(NativeGetAppOwnershipTicketData));
+		}
+
+		[UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+		private delegate uint NativeGetAppOwnershipTicketData(System.IntPtr thisptr, uint nAppID, byte[] pvBuffer, uint cbBufferLength, out uint piAppId, out uint piSteamId, out uint piSignature, out uint pcbSignature);
+		private static NativeGetAppOwnershipTicketData _GetAppOwnershipTicketData;
+		public static uint GetAppOwnershipTicketData(uint nAppID, byte[] pvBuffer, uint cbBufferLength, out uint piAppId, out uint piSteamId, out uint piSignature, out uint pcbSignature) {
+			if (s_SteamAppTicket == System.IntPtr.Zero) { InitSteamAppTicket(); }
+			return _GetAppOwnershipTicketData(s_SteamAppTicket, nAppID, pvBuffer, cbBufferLength, out piAppId, out piSteamId, out piSignature, out pcbSignature);
+		}
+	}
 }
